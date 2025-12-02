@@ -1,0 +1,8 @@
+{
+  "name": "RCRS System",
+  "description": "Comprehensive IT Service Desk and Printing Shop management system with inventory tracking, employee attendance, and AI-powered assistance.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}
