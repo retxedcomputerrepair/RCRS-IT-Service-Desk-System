@@ -69,7 +69,7 @@ const Badge = ({ children, color = "blue" }: any) => {
   return <span className={`px-2 py-1 rounded-full text-xs font-semibold ${colors[color] || colors.gray}`}>{children}</span>;
 }
 
-// Reusable Customer Input with Datalist
+// Reusable Customer Input with Datalist & Typeahead Filter
 const CustomerInput = ({ value, onChange, onSelectExisting, required = true }: { 
     value: string, 
     onChange: (val: string) => void,
@@ -77,37 +77,154 @@ const CustomerInput = ({ value, onChange, onSelectExisting, required = true }: {
     required?: boolean
 }) => {
     const [customers, setCustomers] = useState<{name: string, contact?: string}[]>([]);
+    const [suggestions, setSuggestions] = useState<{name: string, contact?: string}[]>([]);
+    const [showSuggestions, setShowSuggestions] = useState(false);
+    const [highlightIndex, setHighlightIndex] = useState(-1);
+    const wrapperRef = useRef<HTMLDivElement>(null);
+    const listRef = useRef<HTMLDivElement>(null);
 
+    // Load customers
     useEffect(() => {
-        Storage.getCustomers().then(setCustomers);
+        Storage.getCustomers().then(data => {
+            setCustomers(data);
+            setSuggestions(data.slice(0, 50)); // Initial list limit
+        });
+        
+        const handleClickOutside = (event: MouseEvent) => {
+            if (wrapperRef.current && !wrapperRef.current.contains(event.target as Node)) {
+                setShowSuggestions(false);
+            }
+        };
+        document.addEventListener("mousedown", handleClickOutside);
+        return () => document.removeEventListener("mousedown", handleClickOutside);
     }, []);
+
+    const filterByText = (text: string) => {
+        if (!text) return customers.slice(0, 50);
+        return customers.filter(c => c.name.toLowerCase().includes(text.toLowerCase())).slice(0, 50);
+    };
+
+    const filterByLetter = (letter: string) => {
+        if (letter === 'ALL') return customers.slice(0, 50);
+        return customers.filter(c => c.name.toUpperCase().startsWith(letter)).slice(0, 50);
+    };
 
     const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const val = e.target.value;
         onChange(val);
-        
-        // Check if matches existing
-        if(onSelectExisting) {
-            const match = customers.find(c => c.name.toLowerCase() === val.toLowerCase());
-            if(match) onSelectExisting(match);
+        setSuggestions(filterByText(val));
+        setShowSuggestions(true);
+        setHighlightIndex(-1);
+    };
+
+    const handleFocus = () => {
+        if (value) setSuggestions(filterByText(value));
+        else setSuggestions(customers.slice(0, 50));
+        setShowSuggestions(true);
+    };
+
+    const handleSelect = (customer: {name: string, contact?: string}) => {
+        onChange(customer.name);
+        if(onSelectExisting) onSelectExisting(customer);
+        setShowSuggestions(false);
+        setHighlightIndex(-1);
+    };
+
+    const handleLetterClick = (e: React.MouseEvent, letter: string) => {
+        e.preventDefault(); 
+        setSuggestions(filterByLetter(letter));
+        if (listRef.current) listRef.current.scrollTop = 0;
+    };
+
+    const handleKeyDown = (e: React.KeyboardEvent) => {
+        if (!showSuggestions) return;
+
+        if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            setHighlightIndex(prev => (prev < suggestions.length - 1 ? prev + 1 : prev));
+        } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            setHighlightIndex(prev => (prev > 0 ? prev - 1 : -1));
+        } else if (e.key === 'Enter') {
+            if (highlightIndex >= 0 && highlightIndex < suggestions.length) {
+                e.preventDefault();
+                handleSelect(suggestions[highlightIndex]);
+            }
+        } else if (e.key === 'Escape') {
+            setShowSuggestions(false);
         }
     };
 
+    // Scroll active item into view
+    useEffect(() => {
+        if (highlightIndex >= 0 && listRef.current) {
+            const activeItem = listRef.current.children[highlightIndex] as HTMLElement;
+            if (activeItem) {
+                const listTop = listRef.current.scrollTop;
+                const listHeight = listRef.current.clientHeight;
+                const itemTop = activeItem.offsetTop;
+                const itemHeight = activeItem.clientHeight;
+
+                if (itemTop < listTop) {
+                    listRef.current.scrollTop = itemTop;
+                } else if (itemTop + itemHeight > listTop + listHeight) {
+                    listRef.current.scrollTop = itemTop + itemHeight - listHeight;
+                }
+            }
+        }
+    }, [highlightIndex]);
+
+    const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split('');
+
     return (
-        <div>
+        <div className="relative" ref={wrapperRef}>
             <input 
-                list="customer-list" 
                 className="w-full border p-2 rounded" 
                 value={value} 
-                onChange={handleChange} 
-                placeholder="Type or select customer..."
+                onChange={handleChange}
+                onFocus={handleFocus}
+                onKeyDown={handleKeyDown}
+                placeholder="Type name or select..."
                 required={required}
+                autoComplete="off"
             />
-            <datalist id="customer-list">
-                {customers.map((c, i) => (
-                    <option key={i} value={c.name} />
-                ))}
-            </datalist>
+            {showSuggestions && (
+                <div className="absolute z-10 w-full bg-white border border-gray-300 mt-1 rounded shadow-lg max-h-60 flex flex-col">
+                    {/* Alphabet Bar */}
+                    <div 
+                        className="flex flex-wrap gap-1 p-2 bg-gray-50 border-b sticky top-0 z-20 text-[10px] justify-center select-none"
+                        onMouseDown={(e) => e.preventDefault()}
+                    >
+                        <button 
+                            className="px-1.5 py-0.5 rounded hover:bg-blue-200 bg-white border shadow-sm"
+                            onClick={(e) => handleLetterClick(e, 'ALL')}
+                        >ALL</button>
+                        {alphabet.map(char => (
+                             <button 
+                                key={char}
+                                className="px-1.5 py-0.5 rounded hover:bg-blue-200 bg-white border w-5 text-center shadow-sm"
+                                onClick={(e) => handleLetterClick(e, char)}
+                             >
+                                {char}
+                             </button>
+                        ))}
+                    </div>
+
+                    <div className="overflow-y-auto max-h-48" ref={listRef}>
+                        {suggestions.map((c, i) => (
+                            <div 
+                                key={i} 
+                                className={`p-2 cursor-pointer border-b last:border-0 ${i === highlightIndex ? 'bg-blue-100' : 'hover:bg-blue-50'}`}
+                                onClick={() => handleSelect(c)}
+                            >
+                                <p className="font-medium text-gray-800">{c.name}</p>
+                                {c.contact && <p className="text-xs text-gray-500">{c.contact}</p>}
+                            </div>
+                        ))}
+                        {suggestions.length === 0 && <div className="p-4 text-center text-gray-400 text-sm">No customers found</div>}
+                    </div>
+                </div>
+            )}
         </div>
     );
 };
@@ -185,9 +302,6 @@ const LoginScreen = ({ onLogin }: { onLogin: (u: User) => void }) => {
     </div>
   );
 };
-
-// ... (Expenses, Dashboard, Collectibles, ServiceDesk, PrintShop, Sales, Inventory, Attendance components remain the same) ...
-// To save space, I will only output the Reports component and other necessary parts in the XML.
 
 const Expenses = ({ user }: { user: User }) => {
   const [expenses, setExpenses] = useState<ExpenseRecord[]>([]);
@@ -401,18 +515,9 @@ const Expenses = ({ user }: { user: User }) => {
     </div>
   );
 };
-// ... (Dashboard, Collectibles, ServiceDesk, PrintShop, Sales, Inventory, Attendance - Assuming they exist as previously defined) ...
 
-// Use placeholders for unchanged components to keep XML concise for the update, 
-// BUT for the full file replacement strategy, I must include them. 
-// However, since the user asked to "enhance the report", I will focus on updating the Reports component fully and providing the full App.tsx.
-
-// ... (Previous components code) ...
-
-// Since I cannot output partial updates that rely on "..." for existing code in this format without context,
-// I will output the FULL content of App.tsx with the Reports component updated.
-
-// --- FULL APP.TSX CONTENT WITH UPDATED REPORTS ---
+// ... (Rest of Reports, Dashboard, Collectibles, ServiceDesk, PrintShop, Sales, Inventory, Attendance, UserManagement, Sidebar, App unchanged) ...
+// NOTE: I am including the rest of the file content below to ensure full file replacement without losing data.
 
 const Reports = ({ user }: { user: User }) => {
     const [activeTab, setActiveTab] = useState<'Daily' | 'Monthly' | 'Customer' | 'Financials'>('Daily');
@@ -421,6 +526,10 @@ const Reports = ({ user }: { user: User }) => {
     const [techFilter, setTechFilter] = useState('');
     const [customerFilter, setCustomerFilter] = useState('');
     
+    // Financial Filters
+    const [financialPeriod, setFinancialPeriod] = useState<'Monthly' | 'Yearly'>('Monthly');
+    const [yearFilter, setYearFilter] = useState(new Date().getFullYear().toString());
+
     const [salesData, setSalesData] = useState<any[]>([]);
     const [monthlyData, setMonthlyData] = useState<ServiceTicket[]>([]);
     const [customerHistory, setCustomerHistory] = useState<any[]>([]);
@@ -483,20 +592,26 @@ const Reports = ({ user }: { user: User }) => {
             const expenses = await Storage.getExpenses();
 
             const [year, month] = monthFilter.split('-').map(Number);
-            const isSameMonth = (ts: number) => {
+            const selectedYear = parseInt(yearFilter);
+
+            const isSamePeriod = (ts: number) => {
                 const d = new Date(ts);
-                return d.getFullYear() === year && (d.getMonth() + 1) === month;
+                if (financialPeriod === 'Monthly') {
+                    return d.getFullYear() === year && (d.getMonth() + 1) === month;
+                } else {
+                    return d.getFullYear() === selectedYear;
+                }
             };
 
             // Income
             const incomeItems = [
-                ...tickets.filter(t => t.paymentStatus === 'Paid' && isSameMonth(t.updatedAt)).map(t => ({ category: 'Services', amount: t.laborCost + t.partsCost })),
-                ...prints.filter(p => p.paymentStatus === 'Paid' && p.completedAt && isSameMonth(p.completedAt)).map(p => ({ category: 'Printing', amount: p.totalAmount })),
-                ...sales.filter(s => s.paymentStatus === 'Paid' && isSameMonth(s.date)).map(s => ({ category: 'Sales', amount: s.total }))
+                ...tickets.filter(t => t.paymentStatus === 'Paid' && isSamePeriod(t.updatedAt)).map(t => ({ category: 'Services', amount: t.laborCost + t.partsCost })),
+                ...prints.filter(p => p.paymentStatus === 'Paid' && p.completedAt && isSamePeriod(p.completedAt)).map(p => ({ category: 'Printing', amount: p.totalAmount })),
+                ...sales.filter(s => s.paymentStatus === 'Paid' && isSamePeriod(s.date)).map(s => ({ category: 'Sales', amount: s.total }))
             ];
 
             // Expenses
-            const expenseItems = expenses.filter(e => isSameMonth(e.date));
+            const expenseItems = expenses.filter(e => isSamePeriod(e.date));
 
             const totalIncome = incomeItems.reduce((acc, i) => acc + i.amount, 0);
             const totalExpense = expenseItems.reduce((acc, e) => acc + e.totalCost, 0);
@@ -504,7 +619,7 @@ const Reports = ({ user }: { user: User }) => {
             setFinancialData({ income: incomeItems, expenses: expenseItems, totalIncome, totalExpense });
         };
         loadFinancials();
-    }, [activeTab, monthFilter]);
+    }, [activeTab, monthFilter, financialPeriod, yearFilter]);
 
 
     // Load Customer History
@@ -644,13 +759,48 @@ const Reports = ({ user }: { user: User }) => {
                     <div>
                         <div className="flex justify-between items-center mb-6 print:hidden">
                             <h3 className="text-lg font-bold">Financial Statement</h3>
-                            <input type="month" className="border p-2 rounded" value={monthFilter} onChange={e => setMonthFilter(e.target.value)} />
+                            <div className="flex gap-2 bg-gray-100 p-1 rounded">
+                                <button onClick={() => setFinancialPeriod('Monthly')} className={`px-3 py-1 text-sm rounded ${financialPeriod === 'Monthly' ? 'bg-white shadow' : 'text-gray-600'}`}>Monthly</button>
+                                <button onClick={() => setFinancialPeriod('Yearly')} className={`px-3 py-1 text-sm rounded ${financialPeriod === 'Yearly' ? 'bg-white shadow' : 'text-gray-600'}`}>Yearly</button>
+                            </div>
                         </div>
+
+                        <div className="flex justify-center mb-6 print:hidden">
+                            {financialPeriod === 'Monthly' ? (
+                                <input type="month" className="border p-2 rounded" value={monthFilter} onChange={e => setMonthFilter(e.target.value)} />
+                            ) : (
+                                <select className="border p-2 rounded w-32" value={yearFilter} onChange={e => setYearFilter(e.target.value)}>
+                                    {[2023, 2024, 2025, 2026].map(y => <option key={y} value={y}>{y}</option>)}
+                                </select>
+                            )}
+                        </div>
+
                         <h3 className="text-xl font-bold text-center mb-2">Statement of Financial Performance</h3>
-                        <p className="text-center text-gray-600 mb-6">For the Month of {monthFilter}</p>
+                        <p className="text-center text-gray-600 mb-6">For the {financialPeriod === 'Monthly' ? `Month of ${monthFilter}` : `Year ${yearFilter}`}</p>
 
                         <div className="max-w-2xl mx-auto border p-6 rounded bg-gray-50">
                             
+                            {/* Visual Chart */}
+                            <div className="flex justify-around items-end h-40 gap-4 mb-8 border-b pb-4 px-8">
+                                <div className="flex flex-col items-center w-24">
+                                    <div className="text-xs font-bold mb-1 text-green-700">₱{financialData.totalIncome.toLocaleString()}</div>
+                                    <div style={{ height: `${(financialData.totalIncome / Math.max(financialData.totalIncome, financialData.totalExpense, 1)) * 100}%` }} className="w-full bg-green-500 rounded-t shadow-sm transition-all duration-500"></div>
+                                    <span className="text-xs mt-2 font-bold uppercase text-gray-600">Income</span>
+                                </div>
+                                <div className="flex flex-col items-center w-24">
+                                    <div className="text-xs font-bold mb-1 text-red-700">₱{financialData.totalExpense.toLocaleString()}</div>
+                                    <div style={{ height: `${(financialData.totalExpense / Math.max(financialData.totalIncome, financialData.totalExpense, 1)) * 100}%` }} className="w-full bg-red-500 rounded-t shadow-sm transition-all duration-500"></div>
+                                    <span className="text-xs mt-2 font-bold uppercase text-gray-600">Expenses</span>
+                                </div>
+                                <div className="flex flex-col items-center w-24">
+                                    <div className={`text-xs font-bold mb-1 ${financialData.totalIncome - financialData.totalExpense >= 0 ? 'text-blue-700' : 'text-red-700'}`}>
+                                        ₱{(financialData.totalIncome - financialData.totalExpense).toLocaleString()}
+                                    </div>
+                                    <div style={{ height: `${Math.max(0, ((financialData.totalIncome - financialData.totalExpense) / Math.max(financialData.totalIncome, financialData.totalExpense, 1)) * 100)}%` }} className={`w-full rounded-t shadow-sm transition-all duration-500 ${financialData.totalIncome - financialData.totalExpense >= 0 ? 'bg-blue-600' : 'bg-red-800'}`}></div>
+                                    <span className="text-xs mt-2 font-bold uppercase text-gray-600">Profit</span>
+                                </div>
+                            </div>
+
                             {/* Income Section */}
                             <div className="mb-6">
                                 <h4 className="font-bold text-lg border-b border-gray-300 mb-2 pb-1">INCOME</h4>
@@ -771,7 +921,6 @@ const Reports = ({ user }: { user: User }) => {
     );
 };
 
-// ... (Dashboard, Collectibles, ServiceDesk, PrintShop, Sales, Inventory, Attendance, UserManagement, Sidebar, App remain unchanged) ...
 const Dashboard = ({ user, onChangeView }: { user: User, onChangeView: (view: string) => void }) => {
   const [stats, setStats] = useState({ tickets: 0, printOrders: 0, salesToday: 0 });
   const [topProduct, setTopProduct] = useState<{name: string, count: number} | null>(null);
