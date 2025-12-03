@@ -2,6 +2,7 @@
 import { UserRole } from "./types";
 
 export const APP_NAME = "RCRS System";
+export const LOGO_URL = "";
 
 export const MOCK_USERS = [
   { 

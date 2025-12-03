@@ -7,7 +7,7 @@ import {
 import * as Storage from './services/storage';
 import * as Gemini from './services/geminiService';
 import { 
-  APP_NAME, MOCK_USERS, TARPAULIN_SIZES, TSHIRT_SIZES, PAPER_TYPES 
+  APP_NAME, MOCK_USERS, TARPAULIN_SIZES, TSHIRT_SIZES, PAPER_TYPES, LOGO_URL
 } from './constants';
 
 // --- Icons (Inline SVGs to avoid dependencies) ---
@@ -28,7 +28,8 @@ const Icons = {
   Plus: () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" /></svg>,
   Activity: () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>,
   Check: () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>,
-  Trash: () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+  Trash: () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>,
+  Scissors: () => <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.121 14.121L19 19m-7-7l7-7m-7 7l-2.879 2.879M12 12L9.121 9.121m0 5.758a3 3 0 10-4.243 4.243 3 3 0 004.243-4.243zm0-5.758a3 3 0 10-4.243-4.243 3 3 0 004.243 4.243z" /></svg>
 };
 
 // --- Helper Components ---
@@ -113,7 +114,10 @@ const CustomerInput = ({ value, onChange, onSelectExisting, required = true }: {
 // Report Header
 const ReportHeader = () => (
   <div className="text-center mb-6 border-b pb-4 hidden print:block">
-    <h1 className="text-2xl font-bold uppercase tracking-wide">Retxed Computer Repair and Services</h1>
+    <div className="flex flex-col items-center justify-center mb-2">
+       {LOGO_URL && <img src={LOGO_URL} alt="Logo" className="h-16 w-auto mb-2" />}
+       <h1 className="text-2xl font-bold uppercase tracking-wide">Retxed Computer Repair and Services</h1>
+    </div>
     <p className="text-sm text-gray-600 mt-1">Address: Del Carmen St. Baybay Carigara, Leyte</p>
     <p className="text-sm text-gray-600">Contact Number: 09995752331</p>
     <p className="text-sm text-gray-600">Email: retxedcomputerrepair@gmail.com | Fb: Retxed Computer Repair and Services</p>
@@ -588,6 +592,9 @@ const ServiceDesk = ({ user }: { user: User }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [activeTab, setActiveTab] = useState<'Details' | 'Parts' | 'Checklist' | 'Logs'>('Details');
   const [viewClaimStub, setViewClaimStub] = useState<ServiceTicket | null>(null);
+  
+  // Custom date state for backdating (Admin only)
+  const [customDate, setCustomDate] = useState(new Date().toISOString().split('T')[0]);
 
   // Form State
   const [formData, setFormData] = useState<Partial<ServiceTicket>>({
@@ -610,6 +617,20 @@ const ServiceDesk = ({ user }: { user: User }) => {
   };
 
   useEffect(() => { loadData(); }, []);
+
+  const openForm = (ticket?: ServiceTicket) => {
+      setSelectedTicket(ticket || null);
+      if (ticket) {
+          setFormData(ticket);
+          setCustomDate(new Date(ticket.createdAt).toISOString().split('T')[0]);
+      } else {
+          setFormData({ deviceType: DeviceType.LAPTOP, status: TicketStatus.OPEN, assignedTo: '', paymentStatus: 'Unpaid', usedParts: [], checklist: [], logs: [] });
+          setCustomDate(new Date().toISOString().split('T')[0]);
+      }
+      setActiveTab('Details');
+      setShowForm(true);
+      setAiAnalysis('');
+  }
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -638,6 +659,11 @@ const ServiceDesk = ({ user }: { user: User }) => {
         newLogs.push({ date: Date.now(), action: 'Ticket Created', user: user.name });
     }
 
+    // Determine created date (allow backdating for admins)
+    const creationTime = (user.role === UserRole.ADMIN && customDate) 
+        ? new Date(customDate).getTime() 
+        : (selectedTicket ? selectedTicket.createdAt : Date.now());
+
     const ticket: ServiceTicket = {
       id: selectedTicket ? selectedTicket.id : Date.now().toString(),
       ticketNumber,
@@ -652,7 +678,7 @@ const ServiceDesk = ({ user }: { user: User }) => {
       status: formData.status as TicketStatus,
       laborCost: Number(formData.laborCost) || 0,
       partsCost: partsCost,
-      createdAt: selectedTicket ? selectedTicket.createdAt : Date.now(),
+      createdAt: creationTime,
       updatedAt: Date.now(),
       assignedTo: formData.assignedTo || user.id,
       notes: selectedTicket ? selectedTicket.notes : [],
@@ -680,11 +706,6 @@ const ServiceDesk = ({ user }: { user: User }) => {
           unitPrice: product.price
       };
 
-      // In a real app, we might handle stock deduction here or at save. 
-      // For simplicity, we assume one part added at a time and deduct on save.
-      // However, to keep UI consistent, we add to formData. 
-      // Note: We need to handle duplicate parts by increasing quantity.
-      
       const existingPartIndex = (formData.usedParts || []).findIndex(p => p.productId === productId);
       const updatedParts = [...(formData.usedParts || [])];
       
@@ -695,16 +716,6 @@ const ServiceDesk = ({ user }: { user: User }) => {
       }
       
       setFormData({ ...formData, usedParts: updatedParts });
-      
-      // We also need to trigger stock deduction in storage when saving
-      // For this implementation, we will pass a flag to saveTicket if strictly needed, 
-      // but simpler is to let recordSale handle sales, and here we just track usage cost.
-      // To properly deduct stock, we should call a specific function or handle it in saveTicket logic
-      // By calling Storage.saveTicket with isNewPartAdded = true
-      
-      // Let's optimize: We will deduct stock immediately when adding to ticket? 
-      // Or just track it. Let's just track it for now and deduct on saveTicket if we can identify new parts.
-      // To keep it simple: We will deduct inventory when saving.
   };
 
   const removePart = (index: number) => {
@@ -755,95 +766,98 @@ const ServiceDesk = ({ user }: { user: User }) => {
 
   if (viewClaimStub) {
       const t = viewClaimStub;
+
+      const RenderStub = ({ title, type }: { title: string, type: 'CUSTOMER' | 'SERVICE' }) => (
+          <div className="border-2 border-slate-800 p-6 rounded-lg relative h-[48%] flex flex-col justify-between">
+              {/* Corner Label */}
+              <div className="absolute top-0 right-0 border-b-2 border-l-2 border-slate-800 px-3 py-1 bg-gray-100 font-bold text-sm">
+                  {title}
+              </div>
+
+              {/* Header */}
+              <div className="text-center mb-4">
+                  <div className="flex justify-center mb-1">
+                     {LOGO_URL && <img src={LOGO_URL} alt="Logo" className="h-12 w-auto" />}
+                  </div>
+                  <h1 className="text-xl font-bold uppercase tracking-wide">Retxed Computer Repair and Services</h1>
+                  <p className="text-xs text-gray-600">Address: Del Carmen St. Baybay Carigara, Leyte</p>
+                  <p className="text-xs text-gray-600">Contact: 09995752331 | Fb: Retxed Computer Repair</p>
+                  <div className="mt-2 text-2xl font-mono font-bold bg-slate-100 inline-block px-4 py-1 rounded border border-slate-300">
+                      {t.ticketNumber}
+                  </div>
+              </div>
+
+              {/* Info Grid */}
+              <div className="grid grid-cols-2 gap-x-8 gap-y-4 text-sm mb-4">
+                  <div>
+                      <span className="block text-xs font-bold text-gray-500 uppercase">Customer</span>
+                      <p className="font-bold truncate">{t.customerName}</p>
+                      <p className="text-xs text-gray-600">{t.customerContact}</p>
+                      {t.careOf && <p className="text-xs italic">c/o {t.careOf}</p>}
+                  </div>
+                  <div>
+                      <span className="block text-xs font-bold text-gray-500 uppercase">Device</span>
+                      <p className="font-bold truncate">{t.deviceType} - {t.deviceModel}</p>
+                      <p className="text-xs text-gray-600">Date: {new Date(t.createdAt).toLocaleDateString()}</p>
+                  </div>
+                  <div className="col-span-2">
+                      <span className="block text-xs font-bold text-gray-500 uppercase">Issue / Service</span>
+                      <p className="bg-gray-50 p-2 border rounded text-xs leading-snug">{t.issueDescription}</p>
+                  </div>
+              </div>
+              
+              {/* Financials Summary */}
+              <div className="flex justify-between items-center border-t border-b py-2 mb-2 text-sm">
+                   <span className="font-bold">Estimated Cost:</span>
+                   <span className="font-bold text-lg">₱{(t.laborCost + t.partsCost).toFixed(2)}</span>
+              </div>
+
+              {/* Terms & Conditions */}
+              <div className="text-[10px] text-gray-500 leading-tight space-y-1 mb-6">
+                  <p className="font-bold text-xs text-gray-700">TERMS AND CONDITIONS:</p>
+                  <ul className="list-disc pl-3">
+                      <li><strong>90 DAYS CLAIM POLICY:</strong> Retxed Computer Repair is not liable for items unclaimed 90 days after notification of completion. Unclaimed units may be disposed of to cover repair costs.</li>
+                      <li><strong>CLAIM REQUIREMENT:</strong> Customer must present this Claim Stub or a valid Government ID to claim the unit.</li>
+                      <li><strong>DATA PRIVACY:</strong> We are not responsible for any data loss. Please backup your files before repair. No guarantee of data retrieval.</li>
+                      <li><strong>WARRANTY:</strong> 7 days service warranty on the same issue. Hardware warranty subject to supplier terms.</li>
+                      <li>Known issues must be listed before acceptance.</li>
+                  </ul>
+              </div>
+
+              {/* Signatures */}
+              <div className="flex justify-between items-end mt-auto pt-2">
+                  <div className="text-center w-1/3">
+                      <div className="border-b border-black mb-1 h-4"></div>
+                      <p className="text-[10px] uppercase">Customer Signature</p>
+                  </div>
+                  <div className="text-center w-1/3">
+                      <div className="border-b border-black mb-1 h-4"></div>
+                      <p className="text-[10px] uppercase">Received By ({getAssignedName(t.assignedTo)})</p>
+                  </div>
+              </div>
+          </div>
+      );
+
       return (
-          <div className="bg-white min-h-screen p-8 max-w-3xl mx-auto">
-              <div className="print:block hidden"><ReportHeader /></div>
+          <div className="bg-white min-h-screen p-8 mx-auto w-full max-w-[800px]">
               <div className="flex justify-between items-center mb-8 print:hidden">
                   <Button variant="secondary" onClick={() => setViewClaimStub(null)}>Back to Tickets</Button>
                   <Button onClick={() => window.print()}>Print Claim Stub</Button>
               </div>
 
-              <div className="border-2 border-slate-800 p-8 rounded-lg">
-                  <div className="flex justify-between border-b pb-4 mb-4">
-                      <div>
-                          <h2 className="text-2xl font-bold uppercase">Service Claim Stub</h2>
-                          <p className="text-sm font-mono mt-1">Ticket #: {t.ticketNumber}</p>
-                      </div>
-                      <div className="text-right">
-                          <p className="text-sm">Date Received:</p>
-                          <p className="font-bold">{new Date(t.createdAt).toLocaleDateString()}</p>
-                      </div>
-                  </div>
+              <div className="h-[1000px] flex flex-col relative">
+                   {/* Service Desk Copy */}
+                   <RenderStub title="SERVICE DESK COPY" type="SERVICE" />
 
-                  <div className="grid grid-cols-2 gap-8 mb-6">
-                      <div>
-                          <h3 className="text-xs font-bold uppercase text-gray-500 mb-1">Customer Details</h3>
-                          <p className="font-bold text-lg">{t.customerName}</p>
-                          <p>{t.customerContact}</p>
-                          {t.careOf && <p className="text-sm italic">c/o {t.careOf}</p>}
-                      </div>
-                      <div>
-                          <h3 className="text-xs font-bold uppercase text-gray-500 mb-1">Device Details</h3>
-                          <p className="font-bold">{t.deviceType}</p>
-                          <p>{t.deviceModel}</p>
-                      </div>
-                  </div>
+                   {/* Cut Line */}
+                   <div className="flex items-center justify-center my-4 text-gray-400">
+                       <div className="border-b-2 border-dashed w-full border-gray-400"></div>
+                       <span className="px-2"><Icons.Scissors /></span>
+                       <div className="border-b-2 border-dashed w-full border-gray-400"></div>
+                   </div>
 
-                  <div className="mb-6">
-                      <h3 className="text-xs font-bold uppercase text-gray-500 mb-1">Reported Issue</h3>
-                      <div className="p-3 bg-gray-50 border rounded text-sm">
-                          {t.issueDescription}
-                      </div>
-                  </div>
-
-                  <div className="mb-6">
-                      <h3 className="text-xs font-bold uppercase text-gray-500 mb-2">Service Breakdown</h3>
-                      <table className="w-full text-sm">
-                          <thead>
-                              <tr className="border-b">
-                                  <th className="text-left py-1">Description</th>
-                                  <th className="text-right py-1">Amount</th>
-                              </tr>
-                          </thead>
-                          <tbody>
-                              <tr>
-                                  <td className="py-1">Labor / Service Fee</td>
-                                  <td className="py-1 text-right">₱{t.laborCost.toFixed(2)}</td>
-                              </tr>
-                              {t.usedParts.map((p, i) => (
-                                  <tr key={i}>
-                                      <td className="py-1 text-gray-600 pl-4">• {p.name} (x{p.quantity})</td>
-                                      <td className="py-1 text-right text-gray-600">₱{(p.unitPrice * p.quantity).toFixed(2)}</td>
-                                  </tr>
-                              ))}
-                              <tr className="border-t font-bold text-lg">
-                                  <td className="py-2 pt-4">Total Estimated Cost</td>
-                                  <td className="py-2 pt-4 text-right">₱{(t.laborCost + t.partsCost).toFixed(2)}</td>
-                              </tr>
-                          </tbody>
-                      </table>
-                  </div>
-
-                  <div className="text-xs text-gray-500 mt-8 border-t pt-4">
-                      <p className="font-bold mb-1">Terms and Conditions:</p>
-                      <ul className="list-disc pl-4 space-y-1">
-                          <li>Retxed Computer Repair is not responsible for data loss. Please backup your data.</li>
-                          <li>Devices not claimed within 30 days after notification will be disposed of.</li>
-                          <li>Warranty on hardware replacement is subject to supplier terms (usually 1-3 months).</li>
-                          <li>Service warranty is 7 days on the same issue.</li>
-                      </ul>
-                  </div>
-
-                  <div className="mt-8 pt-8 flex justify-between text-center text-sm">
-                      <div className="w-1/3 border-t border-black pt-2">
-                          <p>{t.customerName}</p>
-                          <p className="text-xs text-gray-500">Customer Signature</p>
-                      </div>
-                      <div className="w-1/3 border-t border-black pt-2">
-                          <p>{getAssignedName(t.assignedTo)}</p>
-                          <p className="text-xs text-gray-500">Received By</p>
-                      </div>
-                  </div>
+                   {/* Customer Copy */}
+                   <RenderStub title="CUSTOMER COPY" type="CUSTOMER" />
               </div>
           </div>
       );
@@ -861,13 +875,13 @@ const ServiceDesk = ({ user }: { user: User }) => {
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
             />
-            <Button onClick={() => { setSelectedTicket(null); setFormData({ deviceType: DeviceType.LAPTOP, status: TicketStatus.OPEN, assignedTo: '', paymentStatus: 'Unpaid', usedParts: [], checklist: [], logs: [] }); setActiveTab('Details'); setShowForm(true); }}>New Ticket</Button>
+            <Button onClick={() => openForm()}>New Ticket</Button>
         </div>
       </div>
 
       <div className="grid grid-cols-1 gap-4">
         {filteredTickets.map(t => (
-          <Card key={t.id} className="p-4 hover:shadow-md transition-shadow cursor-pointer border-l-4" style={{borderLeftColor: t.status === 'Completed' ? '#10B981' : '#3B82F6'}} onClick={() => { setSelectedTicket(t); setFormData(t); setActiveTab('Details'); setShowForm(true); setAiAnalysis(''); }}>
+          <Card key={t.id} className="p-4 hover:shadow-md transition-shadow cursor-pointer border-l-4" style={{borderLeftColor: t.status === 'Completed' ? '#10B981' : '#3B82F6'}} onClick={() => openForm(t)}>
             <div className="flex justify-between items-start">
               <div className="flex-1">
                 <div className="flex items-center gap-3 mb-1">
@@ -924,6 +938,19 @@ const ServiceDesk = ({ user }: { user: User }) => {
               {/* --- DETAILS TAB --- */}
               {activeTab === 'Details' && (
                 <div className="space-y-4">
+                    {user.role === UserRole.ADMIN && (
+                        <div className="bg-yellow-50 p-3 rounded border border-yellow-200 mb-4">
+                             <label className="block text-xs font-bold text-yellow-800 uppercase mb-1">Transaction Date (Admin Only)</label>
+                             <input 
+                                type="date" 
+                                className="border p-2 rounded w-full md:w-auto" 
+                                value={customDate}
+                                onChange={e => setCustomDate(e.target.value)}
+                             />
+                             <p className="text-xs text-yellow-700 mt-1">Allows entering old transactions.</p>
+                        </div>
+                    )}
+
                     <div className="grid grid-cols-2 gap-4">
                         <div>
                         <label className="block text-sm font-medium mb-1">Customer Name</label>
@@ -1179,9 +1206,14 @@ const ServiceDesk = ({ user }: { user: User }) => {
 
 const PrintShop = ({ user }: { user: User }) => {
   const [orders, setOrders] = useState<PrintOrder[]>([]);
+  const [staffList, setStaffList] = useState<User[]>([]);
   const [showForm, setShowForm] = useState(false);
   const [filter, setFilter] = useState<'Current' | 'Completed'>('Current');
+  const [staffFilter, setStaffFilter] = useState<string>('');
   const [viewJobOrder, setViewJobOrder] = useState<PrintOrder | null>(null);
+
+  // Custom date state for backdating (Admin only)
+  const [customDate, setCustomDate] = useState(new Date().toISOString().split('T')[0]);
 
   const [formData, setFormData] = useState<Partial<PrintOrder>>({
     printType: PrintType.DOCUMENT,
@@ -1194,10 +1226,23 @@ const PrintShop = ({ user }: { user: User }) => {
 
   const loadOrders = async () => {
     const data = await Storage.getPrintOrders();
+    const users = await Storage.getUsers();
     setOrders(data.sort((a, b) => b.createdAt - a.createdAt));
+    setStaffList(users);
   };
 
   useEffect(() => { loadOrders(); }, []);
+
+  const openForm = (order?: PrintOrder) => {
+      if (order) {
+          setFormData(order);
+          setCustomDate(new Date(order.createdAt).toISOString().split('T')[0]);
+      } else {
+          setFormData({ printType: PrintType.DOCUMENT, quantity: 1, status: 'Pending', details: {}, paymentStatus: 'Unpaid', priority: 'Standard' });
+          setCustomDate(new Date().toISOString().split('T')[0]);
+      }
+      setShowForm(true);
+  }
 
   const handleStatusChange = async (order: PrintOrder, newStatus: string) => {
     let paymentStatus = order.paymentStatus;
@@ -1221,6 +1266,12 @@ const PrintShop = ({ user }: { user: User }) => {
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    // Determine created date (allow backdating for admins)
+    const creationTime = (user.role === UserRole.ADMIN && customDate) 
+        ? new Date(customDate).getTime() 
+        : (formData.createdAt || Date.now());
+
     const order: PrintOrder = {
       id: formData.id || Date.now().toString(),
       customerName: formData.customerName!,
@@ -1231,14 +1282,13 @@ const PrintShop = ({ user }: { user: User }) => {
       details: formData.details || {},
       totalAmount: Number(formData.totalAmount) || 0,
       status: formData.status as any || 'Pending',
-      createdAt: formData.createdAt || Date.now(),
+      createdAt: creationTime,
       completedAt: formData.completedAt,
       handledBy: formData.handledBy || user.id,
       paymentStatus: formData.paymentStatus as PaymentStatus
     };
     await Storage.savePrintOrder(order);
     setShowForm(false);
-    setFormData({ printType: PrintType.DOCUMENT, quantity: 1, status: 'Pending', details: {}, paymentStatus: 'Unpaid', priority: 'Standard' });
     loadOrders();
   };
 
@@ -1247,10 +1297,17 @@ const PrintShop = ({ user }: { user: User }) => {
       await Storage.updatePaymentStatus(order.id, 'print', newStatus);
       loadOrders();
   }
+  
+  const getHandlerName = (id: string) => {
+      return staffList.find(u => u.id === id)?.name || 'Unknown Staff';
+  };
 
   const filteredOrders = orders.filter(o => {
-    if (filter === 'Current') return ['Pending', 'Printing', 'Done'].includes(o.status);
-    return o.status === 'Delivered';
+    const matchesFilter = filter === 'Current' 
+        ? ['Pending', 'Printing', 'Done'].includes(o.status)
+        : o.status === 'Delivered';
+    const matchesStaff = staffFilter ? o.handledBy === staffFilter : true;
+    return matchesFilter && matchesStaff;
   });
 
   if (viewJobOrder) {
@@ -1264,9 +1321,13 @@ const PrintShop = ({ user }: { user: User }) => {
 
               <div className="border p-8 rounded-lg">
                   <div className="text-center mb-6">
+                      <div className="flex justify-center mb-1">
+                         {LOGO_URL && <img src={LOGO_URL} alt="Logo" className="h-12 w-auto" />}
+                      </div>
                       <h2 className="text-2xl font-bold uppercase">Job Order / Claim Stub</h2>
                       <p className="text-sm text-gray-500">Order ID: #{viewJobOrder.id.slice(-6)}</p>
                       <p className="text-sm text-gray-500">Date: {new Date(viewJobOrder.createdAt).toLocaleDateString()}</p>
+                      <p className="text-sm text-gray-500 mt-1">Processed By: {getHandlerName(viewJobOrder.handledBy)}</p>
                   </div>
 
                   <div className="grid grid-cols-2 gap-6 mb-8">
@@ -1329,13 +1390,47 @@ const PrintShop = ({ user }: { user: User }) => {
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
           <h2 className="text-2xl font-bold text-slate-800">Printing Shop</h2>
-          <div className="flex gap-2 mt-2">
-            <button onClick={() => setFilter('Current')} className={`px-3 py-1 rounded-full text-sm font-medium transition-colors ${filter === 'Current' ? 'bg-blue-100 text-blue-700' : 'text-gray-500 hover:bg-gray-100'}`}>Current Jobs</button>
-            <button onClick={() => setFilter('Completed')} className={`px-3 py-1 rounded-full text-sm font-medium transition-colors ${filter === 'Completed' ? 'bg-blue-100 text-blue-700' : 'text-gray-500 hover:bg-gray-100'}`}>History</button>
+          <div className="flex flex-col sm:flex-row gap-2 mt-2">
+            <div className="flex bg-gray-100 rounded-lg p-1">
+                <button onClick={() => setFilter('Current')} className={`px-3 py-1 rounded-md text-sm font-medium transition-colors ${filter === 'Current' ? 'bg-white text-blue-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Current Jobs</button>
+                <button onClick={() => setFilter('Completed')} className={`px-3 py-1 rounded-md text-sm font-medium transition-colors ${filter === 'Completed' ? 'bg-white text-blue-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>History</button>
+            </div>
+            <select 
+                className="border rounded-md px-2 py-1 text-sm bg-white" 
+                value={staffFilter} 
+                onChange={e => setStaffFilter(e.target.value)}
+            >
+                <option value="">All Staff</option>
+                {staffList.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+            </select>
           </div>
         </div>
-        <Button onClick={() => { setFormData({ printType: PrintType.DOCUMENT, quantity: 1, status: 'Pending', details: {}, paymentStatus: 'Unpaid', priority: 'Standard' }); setShowForm(true); }}>New Order</Button>
+        <Button onClick={() => openForm()}>New Order</Button>
       </div>
+      
+      {/* Staff Workload Summary */}
+      {staffFilter && (
+          <div className="bg-blue-50 border border-blue-200 p-4 rounded-lg flex flex-col md:flex-row gap-6">
+              <div>
+                  <h4 className="font-bold text-blue-900">{getHandlerName(staffFilter)}'s Workload</h4>
+                  <p className="text-sm text-blue-700">Summary of orders processed by this staff member.</p>
+              </div>
+              <div className="flex gap-4">
+                  <div className="bg-white px-4 py-2 rounded shadow-sm border">
+                      <p className="text-xs text-gray-500 uppercase font-bold">Pending Jobs</p>
+                      <p className="text-xl font-bold text-orange-600">
+                          {orders.filter(o => o.handledBy === staffFilter && o.status !== 'Delivered').length}
+                      </p>
+                  </div>
+                  <div className="bg-white px-4 py-2 rounded shadow-sm border">
+                      <p className="text-xs text-gray-500 uppercase font-bold">Unpaid Completed</p>
+                      <p className="text-xl font-bold text-red-600">
+                          {orders.filter(o => o.handledBy === staffFilter && o.status === 'Delivered' && o.paymentStatus === 'Unpaid').length}
+                      </p>
+                  </div>
+              </div>
+          </div>
+      )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
         {filteredOrders.map(o => (
@@ -1354,6 +1449,10 @@ const PrintShop = ({ user }: { user: User }) => {
                 <p><span className="font-semibold">Qty:</span> {o.quantity}</p>
                 {o.details.size && <p><span className="font-semibold">Size:</span> {o.details.size}</p>}
                 {o.details.dimensions && <p><span className="font-semibold">Dim:</span> {o.details.dimensions}</p>}
+              </div>
+              <div className="mt-3 pt-2 border-t border-gray-100 text-xs text-gray-500 flex items-center gap-1">
+                   <span>Processed by:</span>
+                   <span className="font-semibold text-gray-700">{getHandlerName(o.handledBy)}</span>
               </div>
             </div>
             
@@ -1393,6 +1492,20 @@ const PrintShop = ({ user }: { user: User }) => {
           <Card className="w-full max-w-lg p-6">
             <h3 className="text-xl font-bold mb-4">{formData.id ? 'Edit Print Order' : 'New Print Order'}</h3>
             <form onSubmit={handleSave} className="space-y-4">
+              
+              {user.role === UserRole.ADMIN && (
+                <div className="bg-yellow-50 p-3 rounded border border-yellow-200 mb-2">
+                     <label className="block text-xs font-bold text-yellow-800 uppercase mb-1">Transaction Date (Admin Only)</label>
+                     <input 
+                        type="date" 
+                        className="border p-2 rounded w-full" 
+                        value={customDate}
+                        onChange={e => setCustomDate(e.target.value)}
+                     />
+                     <p className="text-xs text-yellow-700 mt-1">Allows entering old transactions.</p>
+                </div>
+              )}
+
               <div>
                 <label className="block text-sm font-medium">Customer Name</label>
                 <CustomerInput 
@@ -1590,6 +1703,9 @@ const Sales = ({ user }: { user: User }) => {
 
               <div className="border p-6 rounded shadow-sm print:shadow-none print:border-none">
                   <div className="text-center mb-4">
+                      <div className="flex justify-center mb-1">
+                         {LOGO_URL && <img src={LOGO_URL} alt="Logo" className="h-12 w-auto" />}
+                      </div>
                       <h2 className="text-xl font-bold uppercase">Official Receipt</h2>
                       <p className="text-xs text-gray-500">Receipt #: {viewReceipt.id.slice(-6)}</p>
                       <p className="text-xs text-gray-500">{new Date(viewReceipt.date).toLocaleString()}</p>
@@ -2662,7 +2778,7 @@ const Sidebar = ({ user, setView, currentView, onLogout }: any) => {
   return (
     <div className="w-64 bg-slate-900 text-slate-300 flex flex-col h-full flex-shrink-0 print:hidden">
       <div className="p-6 border-b border-slate-800">
-        <h1 className="text-xl font-bold text-white tracking-tight">NexTech Manager</h1>
+        <h1 className="text-xl font-bold text-white tracking-tight">RCRS System</h1>
         <p className="text-xs text-slate-500 mt-1">v1.2.0 • Offline Ready</p>
       </div>
       <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
