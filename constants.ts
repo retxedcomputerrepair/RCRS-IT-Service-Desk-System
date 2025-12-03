@@ -2,7 +2,7 @@
 import { UserRole } from "./types";
 
 export const APP_NAME = "RCRS System";
-export const LOGO_URL = "";
+export const LOGO_URL = "https://cdn-icons-png.flaticon.com/512/3067/3067252.png";
 
 export const MOCK_USERS = [
   { 
@@ -11,7 +11,7 @@ export const MOCK_USERS = [
     password: 'admin123',
     name: 'System Admin', 
     role: UserRole.ADMIN, 
-    permissions: ['dashboard', 'tickets', 'printing', 'sales', 'inventory', 'attendance', 'reports', 'users'] 
+    permissions: ['dashboard', 'tickets', 'printing', 'sales', 'inventory', 'attendance', 'reports', 'users', 'collectibles', 'expenses'] 
   },
   { 
     id: 'u2', 
@@ -42,5 +42,6 @@ export const STORAGE_KEYS = {
   PRINT_ORDERS: 'nextech_print_orders',
   ATTENDANCE: 'nextech_attendance',
   SALES: 'nextech_sales',
-  CURRENT_USER: 'nextech_current_user'
+  CURRENT_USER: 'nextech_current_user',
+  EXPENSES: 'nextech_expenses'
 };

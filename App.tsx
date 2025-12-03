@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { 
   User, UserRole, DeviceType, TicketStatus, PrintType, Product, 
-  ServiceTicket, PrintOrder, AttendanceRecord, SaleRecord, PaymentStatus, CustomerType, ServicePart, ServiceTask 
+  ServiceTicket, PrintOrder, AttendanceRecord, SaleRecord, PaymentStatus, CustomerType, ServicePart, ServiceTask, ExpenseRecord, ExpenseCategory 
 } from './types';
 import * as Storage from './services/storage';
 import * as Gemini from './services/geminiService';
@@ -29,7 +29,8 @@ const Icons = {
   Activity: () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>,
   Check: () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>,
   Trash: () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>,
-  Scissors: () => <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.121 14.121L19 19m-7-7l7-7m-7 7l-2.879 2.879M12 12L9.121 9.121m0 5.758a3 3 0 10-4.243 4.243 3 3 0 004.243-4.243zm0-5.758a3 3 0 10-4.243-4.243 3 3 0 004.243 4.243z" /></svg>
+  Scissors: () => <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.121 14.121L19 19m-7-7l7-7m-7 7l-2.879 2.879M12 12L9.121 9.121m0 5.758a3 3 0 10-4.243 4.243 3 3 0 004.243-4.243zm0-5.758a3 3 0 10-4.243-4.243 3 3 0 004.243 4.243z" /></svg>,
+  Dollar: () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
 };
 
 // --- Helper Components ---
@@ -185,8 +186,592 @@ const LoginScreen = ({ onLogin }: { onLogin: (u: User) => void }) => {
   );
 };
 
-// --- Modules ---
+// ... (Expenses, Dashboard, Collectibles, ServiceDesk, PrintShop, Sales, Inventory, Attendance components remain the same) ...
+// To save space, I will only output the Reports component and other necessary parts in the XML.
 
+const Expenses = ({ user }: { user: User }) => {
+  const [expenses, setExpenses] = useState<ExpenseRecord[]>([]);
+  const [showForm, setShowForm] = useState(false);
+  const [filter, setFilter] = useState<'Daily' | 'Weekly' | 'Monthly'>('Monthly');
+  const [formData, setFormData] = useState<Partial<ExpenseRecord>>({
+    date: Date.now(),
+    category: 'Bond Paper',
+    quantity: 1,
+    unitCost: 0
+  });
+
+  useEffect(() => {
+    loadExpenses();
+  }, []);
+
+  const loadExpenses = async () => {
+    const data = await Storage.getExpenses();
+    setExpenses(data.sort((a,b) => b.date - a.date));
+  };
+
+  const handleSave = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if(!formData.itemName || !formData.category) return;
+
+    const newExpense: ExpenseRecord = {
+        id: Date.now().toString(),
+        date: new Date(formData.date!).getTime(), // Use input date or current date
+        itemName: formData.itemName,
+        category: formData.category as ExpenseCategory,
+        quantity: Number(formData.quantity) || 1,
+        unitCost: Number(formData.unitCost) || 0,
+        totalCost: (Number(formData.quantity) || 1) * (Number(formData.unitCost) || 0),
+        supplier: formData.supplier || '',
+        recordedBy: user.name
+    };
+
+    await Storage.saveExpense(newExpense);
+    setFormData({ date: Date.now(), category: 'Bond Paper', quantity: 1, unitCost: 0 });
+    setShowForm(false);
+    loadExpenses();
+  };
+
+  const filteredExpenses = expenses.filter(exp => {
+    const expenseDate = new Date(exp.date);
+    const now = new Date();
+    
+    if (filter === 'Daily') {
+        return expenseDate.toDateString() === now.toDateString();
+    } else if (filter === 'Weekly') {
+        const oneWeekAgo = new Date();
+        oneWeekAgo.setDate(now.getDate() - 7);
+        return expenseDate >= oneWeekAgo;
+    } else {
+        // Monthly
+        return expenseDate.getMonth() === now.getMonth() && expenseDate.getFullYear() === now.getFullYear();
+    }
+  });
+
+  const totalExpense = filteredExpenses.reduce((sum, item) => sum + item.totalCost, 0);
+  
+  // Category Breakdown for Chart
+  const categoryTotals: Record<string, number> = {};
+  filteredExpenses.forEach(exp => {
+      categoryTotals[exp.category] = (categoryTotals[exp.category] || 0) + exp.totalCost;
+  });
+  
+  const sortedCategories = Object.entries(categoryTotals).sort((a,b) => b[1] - a[1]);
+  const maxCatValue = sortedCategories.length > 0 ? sortedCategories[0][1] : 1;
+
+  return (
+    <div className="space-y-6">
+      <div className="flex justify-between items-center">
+        <h2 className="text-2xl font-bold text-slate-800">Expenses & Supplies</h2>
+        <Button onClick={() => setShowForm(true)}>+ Add Expense</Button>
+      </div>
+
+      {/* Filter Tabs */}
+      <div className="flex bg-gray-100 rounded-lg p-1 w-fit">
+         {['Daily', 'Weekly', 'Monthly'].map(f => (
+             <button 
+                key={f}
+                onClick={() => setFilter(f as any)} 
+                className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${filter === f ? 'bg-white text-blue-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+             >
+                 {f} Report
+             </button>
+         ))}
+      </div>
+
+      {/* Summary Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <Card className="p-6 bg-red-50 border-red-200">
+              <h3 className="text-sm font-bold text-red-800 uppercase">Total Expenses ({filter})</h3>
+              <p className="text-3xl font-bold text-red-600 mt-2">₱{totalExpense.toFixed(2)}</p>
+          </Card>
+          <Card className="p-6 bg-blue-50 border-blue-200">
+              <h3 className="text-sm font-bold text-blue-800 uppercase">Top Category</h3>
+              <p className="text-3xl font-bold text-blue-600 mt-2">{sortedCategories.length > 0 ? sortedCategories[0][0] : 'N/A'}</p>
+              {sortedCategories.length > 0 && <p className="text-sm text-blue-700">₱{sortedCategories[0][1].toFixed(2)}</p>}
+          </Card>
+      </div>
+
+      {/* Chart & Table */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <Card className="p-6">
+              <h3 className="font-bold text-gray-700 mb-4">Expense Breakdown</h3>
+              <div className="space-y-4">
+                  {sortedCategories.map(([cat, amount]) => (
+                      <div key={cat}>
+                          <div className="flex justify-between text-sm mb-1">
+                              <span>{cat}</span>
+                              <span className="font-medium">₱{amount.toFixed(2)}</span>
+                          </div>
+                          <div className="w-full bg-gray-100 rounded-full h-2">
+                              <div 
+                                className="bg-blue-500 h-2 rounded-full" 
+                                style={{ width: `${(amount / maxCatValue) * 100}%` }}
+                              ></div>
+                          </div>
+                      </div>
+                  ))}
+                  {sortedCategories.length === 0 && <p className="text-gray-400 text-sm text-center">No data for this period.</p>}
+              </div>
+          </Card>
+          
+          <Card className="p-0 overflow-hidden lg:col-span-2">
+              <table className="min-w-full divide-y divide-gray-200">
+                  <thead className="bg-gray-50">
+                      <tr>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Item</th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Category</th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Supplier</th>
+                          <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Total</th>
+                      </tr>
+                  </thead>
+                  <tbody className="bg-white divide-y divide-gray-200">
+                      {filteredExpenses.map(exp => (
+                          <tr key={exp.id}>
+                              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{new Date(exp.date).toLocaleDateString()}</td>
+                              <td className="px-6 py-4 whitespace-nowrap font-medium text-sm">{exp.itemName} <span className="text-gray-400 font-normal">x{exp.quantity}</span></td>
+                              <td className="px-6 py-4 whitespace-nowrap text-sm"><Badge color="gray">{exp.category}</Badge></td>
+                              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{exp.supplier || '-'}</td>
+                              <td className="px-6 py-4 whitespace-nowrap text-sm text-right font-bold text-gray-700">₱{exp.totalCost.toFixed(2)}</td>
+                          </tr>
+                      ))}
+                      {filteredExpenses.length === 0 && (
+                          <tr><td colSpan={5} className="px-6 py-8 text-center text-gray-400">No expenses found for this period.</td></tr>
+                      )}
+                  </tbody>
+              </table>
+          </Card>
+      </div>
+
+      {showForm && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <Card className="w-full max-w-lg p-6">
+            <h3 className="text-xl font-bold mb-4">Add New Expense</h3>
+            <form onSubmit={handleSave} className="space-y-4">
+              <div>
+                  <label className="block text-sm font-medium mb-1">Item Name</label>
+                  <input required className="w-full border p-2 rounded" value={formData.itemName || ''} onChange={e => setFormData({...formData, itemName: e.target.value})} placeholder="e.g. Epson 003 Black Ink" />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                  <div>
+                      <label className="block text-sm font-medium mb-1">Category</label>
+                      <select className="w-full border p-2 rounded" value={formData.category} onChange={e => setFormData({...formData, category: e.target.value as ExpenseCategory})}>
+                          <option>Bond Paper</option>
+                          <option>Ink</option>
+                          <option>Tarpaulin Materials</option>
+                          <option>Other Supplies</option>
+                      </select>
+                  </div>
+                  <div>
+                      <label className="block text-sm font-medium mb-1">Date</label>
+                      <input 
+                        type="date" 
+                        className="w-full border p-2 rounded" 
+                        value={new Date(formData.date!).toISOString().split('T')[0]} 
+                        onChange={e => setFormData({...formData, date: new Date(e.target.value).getTime()})} 
+                       />
+                  </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                  <div>
+                      <label className="block text-sm font-medium mb-1">Quantity</label>
+                      <input type="number" min="1" className="w-full border p-2 rounded" value={formData.quantity} onChange={e => setFormData({...formData, quantity: Number(e.target.value)})} />
+                  </div>
+                  <div>
+                      <label className="block text-sm font-medium mb-1">Unit Cost (₱)</label>
+                      <input type="number" min="0" className="w-full border p-2 rounded" value={formData.unitCost} onChange={e => setFormData({...formData, unitCost: Number(e.target.value)})} />
+                  </div>
+              </div>
+              <div>
+                  <label className="block text-sm font-medium mb-1">Supplier (Optional)</label>
+                  <input className="w-full border p-2 rounded" value={formData.supplier || ''} onChange={e => setFormData({...formData, supplier: e.target.value})} placeholder="e.g. National Bookstore" />
+              </div>
+
+              <div className="pt-2 flex justify-between items-center border-t mt-4">
+                  <p className="font-bold">Total: ₱{((Number(formData.quantity)||0) * (Number(formData.unitCost)||0)).toFixed(2)}</p>
+                  <div className="flex gap-2">
+                    <Button type="button" variant="secondary" onClick={() => setShowForm(false)}>Cancel</Button>
+                    <Button type="submit">Save Expense</Button>
+                  </div>
+              </div>
+            </form>
+          </Card>
+        </div>
+      )}
+    </div>
+  );
+};
+// ... (Dashboard, Collectibles, ServiceDesk, PrintShop, Sales, Inventory, Attendance - Assuming they exist as previously defined) ...
+
+// Use placeholders for unchanged components to keep XML concise for the update, 
+// BUT for the full file replacement strategy, I must include them. 
+// However, since the user asked to "enhance the report", I will focus on updating the Reports component fully and providing the full App.tsx.
+
+// ... (Previous components code) ...
+
+// Since I cannot output partial updates that rely on "..." for existing code in this format without context,
+// I will output the FULL content of App.tsx with the Reports component updated.
+
+// --- FULL APP.TSX CONTENT WITH UPDATED REPORTS ---
+
+const Reports = ({ user }: { user: User }) => {
+    const [activeTab, setActiveTab] = useState<'Daily' | 'Monthly' | 'Customer' | 'Financials'>('Daily');
+    const [dateFilter, setDateFilter] = useState(new Date().toISOString().split('T')[0]);
+    const [monthFilter, setMonthFilter] = useState(new Date().toISOString().slice(0, 7)); // YYYY-MM
+    const [techFilter, setTechFilter] = useState('');
+    const [customerFilter, setCustomerFilter] = useState('');
+    
+    const [salesData, setSalesData] = useState<any[]>([]);
+    const [monthlyData, setMonthlyData] = useState<ServiceTicket[]>([]);
+    const [customerHistory, setCustomerHistory] = useState<any[]>([]);
+    const [technicians, setTechnicians] = useState<User[]>([]);
+    const [financialData, setFinancialData] = useState<{income: any[], expenses: any[], totalIncome: number, totalExpense: number}>({ income: [], expenses: [], totalIncome: 0, totalExpense: 0 });
+
+    useEffect(() => {
+        Storage.getUsers().then(users => setTechnicians(users));
+    }, []);
+
+    // Load Daily Sales
+    useEffect(() => {
+        const loadDaily = async () => {
+            if (activeTab !== 'Daily') return;
+            const start = new Date(dateFilter).setHours(0,0,0,0);
+            const end = new Date(dateFilter).setHours(23,59,59,999);
+
+            const tickets = await Storage.getTickets();
+            const prints = await Storage.getPrintOrders();
+            const pos = await Storage.getSales();
+
+            const dailyItems = [
+                ...tickets.filter(t => t.paymentStatus === 'Paid' && t.updatedAt >= start && t.updatedAt <= end)
+                    .map(t => ({ type: 'Service', ref: t.ticketNumber, desc: `${t.deviceType} - ${t.issueDescription}`, amount: (t.laborCost + t.partsCost), user: t.assignedTo })),
+                ...prints.filter(t => t.paymentStatus === 'Paid' && t.completedAt && t.completedAt >= start && t.completedAt <= end)
+                    .map(p => ({ type: 'Print', ref: 'Print Job', desc: `${p.printType} x${p.quantity}`, amount: p.totalAmount, user: p.handledBy })),
+                ...pos.filter(s => s.paymentStatus === 'Paid' && s.date >= start && s.date <= end)
+                    .map(s => ({ type: 'Sale', ref: 'POS', desc: `${s.items.length} items`, amount: s.total, user: s.handledBy }))
+            ];
+            setSalesData(dailyItems);
+        };
+        loadDaily();
+    }, [activeTab, dateFilter]);
+
+    // Load Monthly Service Report
+    useEffect(() => {
+        const loadMonthly = async () => {
+            if (activeTab !== 'Monthly') return;
+            const tickets = await Storage.getTickets();
+            
+            const filtered = tickets.filter(t => {
+                const d = new Date(t.updatedAt);
+                const matchMonth = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}` === monthFilter;
+                const matchStatus = t.status === TicketStatus.COMPLETED;
+                const matchTech = techFilter ? t.assignedTo === techFilter : true;
+                return matchMonth && matchStatus && matchTech;
+            });
+            setMonthlyData(filtered);
+        };
+        loadMonthly();
+    }, [activeTab, monthFilter, techFilter]);
+
+    // Load Financials (Profit & Loss)
+    useEffect(() => {
+        const loadFinancials = async () => {
+            if (activeTab !== 'Financials') return;
+            const tickets = await Storage.getTickets();
+            const prints = await Storage.getPrintOrders();
+            const sales = await Storage.getSales();
+            const expenses = await Storage.getExpenses();
+
+            const [year, month] = monthFilter.split('-').map(Number);
+            const isSameMonth = (ts: number) => {
+                const d = new Date(ts);
+                return d.getFullYear() === year && (d.getMonth() + 1) === month;
+            };
+
+            // Income
+            const incomeItems = [
+                ...tickets.filter(t => t.paymentStatus === 'Paid' && isSameMonth(t.updatedAt)).map(t => ({ category: 'Services', amount: t.laborCost + t.partsCost })),
+                ...prints.filter(p => p.paymentStatus === 'Paid' && p.completedAt && isSameMonth(p.completedAt)).map(p => ({ category: 'Printing', amount: p.totalAmount })),
+                ...sales.filter(s => s.paymentStatus === 'Paid' && isSameMonth(s.date)).map(s => ({ category: 'Sales', amount: s.total }))
+            ];
+
+            // Expenses
+            const expenseItems = expenses.filter(e => isSameMonth(e.date));
+
+            const totalIncome = incomeItems.reduce((acc, i) => acc + i.amount, 0);
+            const totalExpense = expenseItems.reduce((acc, e) => acc + e.totalCost, 0);
+
+            setFinancialData({ income: incomeItems, expenses: expenseItems, totalIncome, totalExpense });
+        };
+        loadFinancials();
+    }, [activeTab, monthFilter]);
+
+
+    // Load Customer History
+    useEffect(() => {
+        const loadCustomer = async () => {
+            if (activeTab !== 'Customer' || !customerFilter) return;
+            const tickets = await Storage.getTickets();
+            const prints = await Storage.getPrintOrders();
+            const sales = await Storage.getSales();
+
+            const history = [
+                ...tickets.filter(t => t.customerName === customerFilter).map(t => ({ date: t.createdAt, type: 'Service', desc: t.ticketNumber, amount: (t.laborCost + t.partsCost), status: t.paymentStatus })),
+                ...prints.filter(p => p.customerName === customerFilter).map(p => ({ date: p.createdAt, type: 'Print', desc: p.printType, amount: p.totalAmount, status: p.paymentStatus })),
+                ...sales.filter(s => s.customerName === customerFilter).map(s => ({ date: s.date, type: 'Sale', desc: 'Items Purchased', amount: s.total, status: s.paymentStatus }))
+            ].sort((a,b) => b.date - a.date);
+            setCustomerHistory(history);
+        };
+        loadCustomer();
+    }, [activeTab, customerFilter]);
+
+    const handlePrint = () => window.print();
+
+    const getTechName = (id: string) => technicians.find(u => u.id === id)?.name || 'Unknown';
+
+    return (
+        <div className="space-y-6">
+            <div className="flex justify-between items-center print:hidden">
+                <h2 className="text-2xl font-bold text-slate-800">Reports</h2>
+                <Button onClick={handlePrint} variant="secondary">Print Report</Button>
+            </div>
+
+            <div className="flex gap-2 print:hidden border-b pb-4 overflow-x-auto">
+                <button onClick={() => setActiveTab('Daily')} className={`px-4 py-2 rounded-lg font-medium whitespace-nowrap ${activeTab === 'Daily' ? 'bg-blue-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}>Daily Sales</button>
+                <button onClick={() => setActiveTab('Monthly')} className={`px-4 py-2 rounded-lg font-medium whitespace-nowrap ${activeTab === 'Monthly' ? 'bg-blue-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}>Monthly Service</button>
+                <button onClick={() => setActiveTab('Financials')} className={`px-4 py-2 rounded-lg font-medium whitespace-nowrap ${activeTab === 'Financials' ? 'bg-blue-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}>Financial Statement</button>
+                <button onClick={() => setActiveTab('Customer')} className={`px-4 py-2 rounded-lg font-medium whitespace-nowrap ${activeTab === 'Customer' ? 'bg-blue-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}>Customer Statement</button>
+            </div>
+
+            <ReportHeader />
+
+            <div className="bg-white min-h-[500px] print:shadow-none print:border-none p-6 rounded-lg shadow-sm border border-gray-200">
+                {/* DAILY SALES REPORT */}
+                {activeTab === 'Daily' && (
+                    <div>
+                        <div className="flex justify-between items-center mb-6 print:hidden">
+                            <h3 className="text-lg font-bold">Sales Report</h3>
+                            <input type="date" className="border p-2 rounded" value={dateFilter} onChange={e => setDateFilter(e.target.value)} />
+                        </div>
+                        <h3 className="text-xl font-bold text-center mb-4 hidden print:block">Sales Report: {dateFilter}</h3>
+
+                        <table className="min-w-full divide-y divide-gray-200 border">
+                            <thead className="bg-gray-50">
+                                <tr>
+                                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Type</th>
+                                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Reference</th>
+                                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Description</th>
+                                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Handled By</th>
+                                    <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">Amount</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-gray-200">
+                                {salesData.map((item, i) => (
+                                    <tr key={i}>
+                                        <td className="px-4 py-2 text-sm">{item.type}</td>
+                                        <td className="px-4 py-2 text-sm font-mono">{item.ref}</td>
+                                        <td className="px-4 py-2 text-sm">{item.desc}</td>
+                                        <td className="px-4 py-2 text-sm">{getTechName(item.user)}</td>
+                                        <td className="px-4 py-2 text-sm text-right font-medium">₱{item.amount.toFixed(2)}</td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                            <tfoot className="bg-gray-100 font-bold">
+                                <tr>
+                                    <td colSpan={4} className="px-4 py-2 text-right">TOTAL REVENUE</td>
+                                    <td className="px-4 py-2 text-right text-blue-700">₱{salesData.reduce((sum, i) => sum + i.amount, 0).toFixed(2)}</td>
+                                </tr>
+                            </tfoot>
+                        </table>
+                    </div>
+                )}
+
+                {/* MONTHLY SERVICE REPORT */}
+                {activeTab === 'Monthly' && (
+                    <div>
+                        <div className="flex flex-col md:flex-row gap-4 mb-6 print:hidden">
+                            <div>
+                                <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Month</label>
+                                <input type="month" className="border p-2 rounded w-full" value={monthFilter} onChange={e => setMonthFilter(e.target.value)} />
+                            </div>
+                            <div>
+                                <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Technician</label>
+                                <select className="border p-2 rounded w-full min-w-[200px]" value={techFilter} onChange={e => setTechFilter(e.target.value)}>
+                                    <option value="">All Technicians</option>
+                                    {technicians.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+                                </select>
+                            </div>
+                        </div>
+                        <h3 className="text-xl font-bold text-center mb-4 hidden print:block">
+                            Service Desk Performance: {monthFilter} {techFilter ? `(${getTechName(techFilter)})` : ''}
+                        </h3>
+
+                        <table className="min-w-full divide-y divide-gray-200 border">
+                            <thead className="bg-gray-50">
+                                <tr>
+                                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
+                                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Ticket #</th>
+                                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Customer</th>
+                                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Device/Issue</th>
+                                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Technician</th>
+                                    <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">Cost</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-gray-200">
+                                {monthlyData.map((t, i) => (
+                                    <tr key={i}>
+                                        <td className="px-4 py-2 text-sm">{new Date(t.updatedAt).toLocaleDateString()}</td>
+                                        <td className="px-4 py-2 text-sm font-mono">{t.ticketNumber}</td>
+                                        <td className="px-4 py-2 text-sm">{t.customerName}</td>
+                                        <td className="px-4 py-2 text-sm">{t.deviceType} - {t.issueDescription}</td>
+                                        <td className="px-4 py-2 text-sm">{getTechName(t.assignedTo || '')}</td>
+                                        <td className="px-4 py-2 text-sm text-right">₱{(t.laborCost + t.partsCost).toFixed(2)}</td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                            <tfoot className="bg-gray-100 font-bold">
+                                <tr>
+                                    <td colSpan={5} className="px-4 py-2 text-right">TOTAL SERVICE REVENUE</td>
+                                    <td className="px-4 py-2 text-right text-blue-700">₱{monthlyData.reduce((sum, t) => sum + (t.laborCost + t.partsCost), 0).toFixed(2)}</td>
+                                </tr>
+                            </tfoot>
+                        </table>
+                    </div>
+                )}
+
+                {/* FINANCIAL REPORT (PROFIT & LOSS) */}
+                {activeTab === 'Financials' && (
+                    <div>
+                        <div className="flex justify-between items-center mb-6 print:hidden">
+                            <h3 className="text-lg font-bold">Financial Statement</h3>
+                            <input type="month" className="border p-2 rounded" value={monthFilter} onChange={e => setMonthFilter(e.target.value)} />
+                        </div>
+                        <h3 className="text-xl font-bold text-center mb-2">Statement of Financial Performance</h3>
+                        <p className="text-center text-gray-600 mb-6">For the Month of {monthFilter}</p>
+
+                        <div className="max-w-2xl mx-auto border p-6 rounded bg-gray-50">
+                            
+                            {/* Income Section */}
+                            <div className="mb-6">
+                                <h4 className="font-bold text-lg border-b border-gray-300 mb-2 pb-1">INCOME</h4>
+                                <div className="space-y-2 text-sm">
+                                    <div className="flex justify-between">
+                                        <span>Service Revenue</span>
+                                        <span>₱{financialData.income.filter(i => i.category === 'Services').reduce((s,i) => s+i.amount, 0).toFixed(2)}</span>
+                                    </div>
+                                    <div className="flex justify-between">
+                                        <span>Printing Revenue</span>
+                                        <span>₱{financialData.income.filter(i => i.category === 'Printing').reduce((s,i) => s+i.amount, 0).toFixed(2)}</span>
+                                    </div>
+                                    <div className="flex justify-between">
+                                        <span>Sales / Parts Revenue</span>
+                                        <span>₱{financialData.income.filter(i => i.category === 'Sales').reduce((s,i) => s+i.amount, 0).toFixed(2)}</span>
+                                    </div>
+                                </div>
+                                <div className="flex justify-between font-bold mt-2 pt-2 border-t border-gray-200 text-green-700">
+                                    <span>TOTAL INCOME</span>
+                                    <span>₱{financialData.totalIncome.toFixed(2)}</span>
+                                </div>
+                            </div>
+
+                            {/* Expenses Section */}
+                            <div className="mb-6">
+                                <h4 className="font-bold text-lg border-b border-gray-300 mb-2 pb-1">EXPENSES</h4>
+                                <div className="space-y-2 text-sm">
+                                    {Object.entries(financialData.expenses.reduce((acc: any, exp: any) => {
+                                        acc[exp.category] = (acc[exp.category] || 0) + exp.totalCost;
+                                        return acc;
+                                    }, {})).map(([cat, amount]: any) => (
+                                        <div key={cat} className="flex justify-between">
+                                            <span>{cat}</span>
+                                            <span>₱{amount.toFixed(2)}</span>
+                                        </div>
+                                    ))}
+                                    {financialData.expenses.length === 0 && <p className="text-gray-400 italic">No expenses recorded.</p>}
+                                </div>
+                                <div className="flex justify-between font-bold mt-2 pt-2 border-t border-gray-200 text-red-700">
+                                    <span>TOTAL EXPENSES</span>
+                                    <span>(₱{financialData.totalExpense.toFixed(2)})</span>
+                                </div>
+                            </div>
+
+                            {/* Net Profit Section */}
+                            <div className="border-t-2 border-black pt-4">
+                                <div className="flex justify-between items-center text-xl font-bold">
+                                    <span>NET PROFIT / (LOSS)</span>
+                                    <span className={(financialData.totalIncome - financialData.totalExpense) >= 0 ? 'text-blue-800' : 'text-red-800'}>
+                                        ₱{(financialData.totalIncome - financialData.totalExpense).toFixed(2)}
+                                    </span>
+                                </div>
+                            </div>
+
+                        </div>
+                    </div>
+                )}
+
+                {/* CUSTOMER STATEMENT */}
+                {activeTab === 'Customer' && (
+                    <div>
+                        <div className="mb-6 print:hidden">
+                            <label className="block text-sm font-medium mb-1">Select Customer</label>
+                            <CustomerInput value={customerFilter} onChange={setCustomerFilter} />
+                        </div>
+                        
+                        {customerFilter ? (
+                            <div>
+                                <div className="mb-6 bg-gray-50 p-4 rounded border">
+                                    <h3 className="text-xl font-bold mb-2">Statement of Account</h3>
+                                    <p className="text-lg">Customer: <strong>{customerFilter}</strong></p>
+                                    <div className="grid grid-cols-2 gap-4 mt-4">
+                                        <div className="p-3 bg-white border rounded">
+                                            <span className="text-gray-500 text-sm">Total Spent (Lifetime)</span>
+                                            <p className="text-xl font-bold">₱{customerHistory.reduce((s,i) => s + i.amount, 0).toFixed(2)}</p>
+                                        </div>
+                                        <div className="p-3 bg-white border rounded border-red-200 bg-red-50">
+                                            <span className="text-red-700 text-sm">Current Balance (Unpaid)</span>
+                                            <p className="text-xl font-bold text-red-700">
+                                                ₱{customerHistory.filter(i => i.status === 'Unpaid').reduce((s,i) => s + i.amount, 0).toFixed(2)}
+                                            </p>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <table className="min-w-full divide-y divide-gray-200 border">
+                                    <thead className="bg-gray-50">
+                                        <tr>
+                                            <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
+                                            <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Type</th>
+                                            <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Description</th>
+                                            <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+                                            <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">Amount</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-gray-200">
+                                        {customerHistory.map((item, i) => (
+                                            <tr key={i}>
+                                                <td className="px-4 py-2 text-sm">{new Date(item.date).toLocaleDateString()}</td>
+                                                <td className="px-4 py-2 text-sm"><Badge color="gray">{item.type}</Badge></td>
+                                                <td className="px-4 py-2 text-sm">{item.desc}</td>
+                                                <td className="px-4 py-2 text-sm">
+                                                    <span className={item.status === 'Paid' ? 'text-green-600 font-bold' : 'text-red-600 font-bold'}>{item.status}</span>
+                                                </td>
+                                                <td className="px-4 py-2 text-sm text-right">₱{item.amount.toFixed(2)}</td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        ) : (
+                            <p className="text-center text-gray-500 py-10 print:hidden">Please select a customer to view their statement.</p>
+                        )}
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+};
+
+// ... (Dashboard, Collectibles, ServiceDesk, PrintShop, Sales, Inventory, Attendance, UserManagement, Sidebar, App remain unchanged) ...
 const Dashboard = ({ user, onChangeView }: { user: User, onChangeView: (view: string) => void }) => {
   const [stats, setStats] = useState({ tickets: 0, printOrders: 0, salesToday: 0 });
   const [topProduct, setTopProduct] = useState<{name: string, count: number} | null>(null);
@@ -580,6 +1165,7 @@ const Collectibles = ({ user }: { user: User }) => {
     </div>
   );
 };
+// ... (Including rest of the file ServiceDesk, PrintShop, Sales, Inventory, Attendance, UserManagement, Sidebar, App default function) ...
 
 const ServiceDesk = ({ user }: { user: User }) => {
   const [tickets, setTickets] = useState<ServiceTicket[]>([]);
@@ -2356,257 +2942,6 @@ const Attendance = ({ user }: { user: User }) => {
     );
 };
 
-const Reports = ({ user }: { user: User }) => {
-    const [activeTab, setActiveTab] = useState<'Daily' | 'Monthly' | 'Customer'>('Daily');
-    const [dateFilter, setDateFilter] = useState(new Date().toISOString().split('T')[0]);
-    const [monthFilter, setMonthFilter] = useState(new Date().toISOString().slice(0, 7)); // YYYY-MM
-    const [techFilter, setTechFilter] = useState('');
-    const [customerFilter, setCustomerFilter] = useState('');
-    
-    const [salesData, setSalesData] = useState<any[]>([]);
-    const [monthlyData, setMonthlyData] = useState<ServiceTicket[]>([]);
-    const [customerHistory, setCustomerHistory] = useState<any[]>([]);
-    const [technicians, setTechnicians] = useState<User[]>([]);
-
-    useEffect(() => {
-        Storage.getUsers().then(users => setTechnicians(users));
-    }, []);
-
-    // Load Daily Sales
-    useEffect(() => {
-        const loadDaily = async () => {
-            if (activeTab !== 'Daily') return;
-            const start = new Date(dateFilter).setHours(0,0,0,0);
-            const end = new Date(dateFilter).setHours(23,59,59,999);
-
-            const tickets = await Storage.getTickets();
-            const prints = await Storage.getPrintOrders();
-            const pos = await Storage.getSales();
-
-            const dailyItems = [
-                ...tickets.filter(t => t.paymentStatus === 'Paid' && t.updatedAt >= start && t.updatedAt <= end)
-                    .map(t => ({ type: 'Service', ref: t.ticketNumber, desc: `${t.deviceType} - ${t.issueDescription}`, amount: (t.laborCost + t.partsCost), user: t.assignedTo })),
-                ...prints.filter(t => t.paymentStatus === 'Paid' && t.completedAt && t.completedAt >= start && t.completedAt <= end)
-                    .map(p => ({ type: 'Print', ref: 'Print Job', desc: `${p.printType} x${p.quantity}`, amount: p.totalAmount, user: p.handledBy })),
-                ...pos.filter(s => s.paymentStatus === 'Paid' && s.date >= start && s.date <= end)
-                    .map(s => ({ type: 'Sale', ref: 'POS', desc: `${s.items.length} items`, amount: s.total, user: s.handledBy }))
-            ];
-            setSalesData(dailyItems);
-        };
-        loadDaily();
-    }, [activeTab, dateFilter]);
-
-    // Load Monthly Service Report
-    useEffect(() => {
-        const loadMonthly = async () => {
-            if (activeTab !== 'Monthly') return;
-            const tickets = await Storage.getTickets();
-            
-            const filtered = tickets.filter(t => {
-                const d = new Date(t.updatedAt);
-                const matchMonth = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}` === monthFilter;
-                const matchStatus = t.status === TicketStatus.COMPLETED;
-                const matchTech = techFilter ? t.assignedTo === techFilter : true;
-                return matchMonth && matchStatus && matchTech;
-            });
-            setMonthlyData(filtered);
-        };
-        loadMonthly();
-    }, [activeTab, monthFilter, techFilter]);
-
-    // Load Customer History
-    useEffect(() => {
-        const loadCustomer = async () => {
-            if (activeTab !== 'Customer' || !customerFilter) return;
-            const tickets = await Storage.getTickets();
-            const prints = await Storage.getPrintOrders();
-            const sales = await Storage.getSales();
-
-            const history = [
-                ...tickets.filter(t => t.customerName === customerFilter).map(t => ({ date: t.createdAt, type: 'Service', desc: t.ticketNumber, amount: (t.laborCost + t.partsCost), status: t.paymentStatus })),
-                ...prints.filter(p => p.customerName === customerFilter).map(p => ({ date: p.createdAt, type: 'Print', desc: p.printType, amount: p.totalAmount, status: p.paymentStatus })),
-                ...sales.filter(s => s.customerName === customerFilter).map(s => ({ date: s.date, type: 'Sale', desc: 'Items Purchased', amount: s.total, status: s.paymentStatus }))
-            ].sort((a,b) => b.date - a.date);
-            setCustomerHistory(history);
-        };
-        loadCustomer();
-    }, [activeTab, customerFilter]);
-
-    const handlePrint = () => window.print();
-
-    const getTechName = (id: string) => technicians.find(u => u.id === id)?.name || 'Unknown';
-
-    return (
-        <div className="space-y-6">
-            <div className="flex justify-between items-center print:hidden">
-                <h2 className="text-2xl font-bold text-slate-800">Reports</h2>
-                <Button onClick={handlePrint} variant="secondary">Print Report</Button>
-            </div>
-
-            <div className="flex gap-2 print:hidden border-b pb-4">
-                <button onClick={() => setActiveTab('Daily')} className={`px-4 py-2 rounded-lg font-medium ${activeTab === 'Daily' ? 'bg-blue-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}>Daily Sales</button>
-                <button onClick={() => setActiveTab('Monthly')} className={`px-4 py-2 rounded-lg font-medium ${activeTab === 'Monthly' ? 'bg-blue-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}>Monthly Service</button>
-                <button onClick={() => setActiveTab('Customer')} className={`px-4 py-2 rounded-lg font-medium ${activeTab === 'Customer' ? 'bg-blue-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}>Customer Statement</button>
-            </div>
-
-            <ReportHeader />
-
-            <div className="bg-white min-h-[500px] print:shadow-none print:border-none p-6 rounded-lg shadow-sm border border-gray-200">
-                {/* DAILY SALES REPORT */}
-                {activeTab === 'Daily' && (
-                    <div>
-                        <div className="flex justify-between items-center mb-6 print:hidden">
-                            <h3 className="text-lg font-bold">Sales Report</h3>
-                            <input type="date" className="border p-2 rounded" value={dateFilter} onChange={e => setDateFilter(e.target.value)} />
-                        </div>
-                        <h3 className="text-xl font-bold text-center mb-4 hidden print:block">Sales Report: {dateFilter}</h3>
-
-                        <table className="min-w-full divide-y divide-gray-200 border">
-                            <thead className="bg-gray-50">
-                                <tr>
-                                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Type</th>
-                                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Reference</th>
-                                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Description</th>
-                                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Handled By</th>
-                                    <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">Amount</th>
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-gray-200">
-                                {salesData.map((item, i) => (
-                                    <tr key={i}>
-                                        <td className="px-4 py-2 text-sm">{item.type}</td>
-                                        <td className="px-4 py-2 text-sm font-mono">{item.ref}</td>
-                                        <td className="px-4 py-2 text-sm">{item.desc}</td>
-                                        <td className="px-4 py-2 text-sm">{getTechName(item.user)}</td>
-                                        <td className="px-4 py-2 text-sm text-right font-medium">₱{item.amount.toFixed(2)}</td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                            <tfoot className="bg-gray-100 font-bold">
-                                <tr>
-                                    <td colSpan={4} className="px-4 py-2 text-right">TOTAL REVENUE</td>
-                                    <td className="px-4 py-2 text-right text-blue-700">₱{salesData.reduce((sum, i) => sum + i.amount, 0).toFixed(2)}</td>
-                                </tr>
-                            </tfoot>
-                        </table>
-                    </div>
-                )}
-
-                {/* MONTHLY SERVICE REPORT */}
-                {activeTab === 'Monthly' && (
-                    <div>
-                        <div className="flex flex-col md:flex-row gap-4 mb-6 print:hidden">
-                            <div>
-                                <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Month</label>
-                                <input type="month" className="border p-2 rounded w-full" value={monthFilter} onChange={e => setMonthFilter(e.target.value)} />
-                            </div>
-                            <div>
-                                <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Technician</label>
-                                <select className="border p-2 rounded w-full min-w-[200px]" value={techFilter} onChange={e => setTechFilter(e.target.value)}>
-                                    <option value="">All Technicians</option>
-                                    {technicians.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
-                                </select>
-                            </div>
-                        </div>
-                        <h3 className="text-xl font-bold text-center mb-4 hidden print:block">
-                            Service Desk Performance: {monthFilter} {techFilter ? `(${getTechName(techFilter)})` : ''}
-                        </h3>
-
-                        <table className="min-w-full divide-y divide-gray-200 border">
-                            <thead className="bg-gray-50">
-                                <tr>
-                                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
-                                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Ticket #</th>
-                                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Customer</th>
-                                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Device/Issue</th>
-                                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Technician</th>
-                                    <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">Cost</th>
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-gray-200">
-                                {monthlyData.map((t, i) => (
-                                    <tr key={i}>
-                                        <td className="px-4 py-2 text-sm">{new Date(t.updatedAt).toLocaleDateString()}</td>
-                                        <td className="px-4 py-2 text-sm font-mono">{t.ticketNumber}</td>
-                                        <td className="px-4 py-2 text-sm">{t.customerName}</td>
-                                        <td className="px-4 py-2 text-sm">{t.deviceType} - {t.issueDescription}</td>
-                                        <td className="px-4 py-2 text-sm">{getTechName(t.assignedTo || '')}</td>
-                                        <td className="px-4 py-2 text-sm text-right">₱{(t.laborCost + t.partsCost).toFixed(2)}</td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                            <tfoot className="bg-gray-100 font-bold">
-                                <tr>
-                                    <td colSpan={5} className="px-4 py-2 text-right">TOTAL SERVICE REVENUE</td>
-                                    <td className="px-4 py-2 text-right text-blue-700">₱{monthlyData.reduce((sum, t) => sum + (t.laborCost + t.partsCost), 0).toFixed(2)}</td>
-                                </tr>
-                            </tfoot>
-                        </table>
-                    </div>
-                )}
-
-                {/* CUSTOMER STATEMENT */}
-                {activeTab === 'Customer' && (
-                    <div>
-                        <div className="mb-6 print:hidden">
-                            <label className="block text-sm font-medium mb-1">Select Customer</label>
-                            <CustomerInput value={customerFilter} onChange={setCustomerFilter} />
-                        </div>
-                        
-                        {customerFilter ? (
-                            <div>
-                                <div className="mb-6 bg-gray-50 p-4 rounded border">
-                                    <h3 className="text-xl font-bold mb-2">Statement of Account</h3>
-                                    <p className="text-lg">Customer: <strong>{customerFilter}</strong></p>
-                                    <div className="grid grid-cols-2 gap-4 mt-4">
-                                        <div className="p-3 bg-white border rounded">
-                                            <span className="text-gray-500 text-sm">Total Spent (Lifetime)</span>
-                                            <p className="text-xl font-bold">₱{customerHistory.reduce((s,i) => s + i.amount, 0).toFixed(2)}</p>
-                                        </div>
-                                        <div className="p-3 bg-white border rounded border-red-200 bg-red-50">
-                                            <span className="text-red-700 text-sm">Current Balance (Unpaid)</span>
-                                            <p className="text-xl font-bold text-red-700">
-                                                ₱{customerHistory.filter(i => i.status === 'Unpaid').reduce((s,i) => s + i.amount, 0).toFixed(2)}
-                                            </p>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                <table className="min-w-full divide-y divide-gray-200 border">
-                                    <thead className="bg-gray-50">
-                                        <tr>
-                                            <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
-                                            <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Type</th>
-                                            <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Description</th>
-                                            <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
-                                            <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">Amount</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody className="divide-y divide-gray-200">
-                                        {customerHistory.map((item, i) => (
-                                            <tr key={i}>
-                                                <td className="px-4 py-2 text-sm">{new Date(item.date).toLocaleDateString()}</td>
-                                                <td className="px-4 py-2 text-sm"><Badge color="gray">{item.type}</Badge></td>
-                                                <td className="px-4 py-2 text-sm">{item.desc}</td>
-                                                <td className="px-4 py-2 text-sm">
-                                                    <span className={item.status === 'Paid' ? 'text-green-600 font-bold' : 'text-red-600 font-bold'}>{item.status}</span>
-                                                </td>
-                                                <td className="px-4 py-2 text-sm text-right">₱{item.amount.toFixed(2)}</td>
-                                            </tr>
-                                        ))}
-                                    </tbody>
-                                </table>
-                            </div>
-                        ) : (
-                            <p className="text-center text-gray-500 py-10 print:hidden">Please select a customer to view their statement.</p>
-                        )}
-                    </div>
-                )}
-            </div>
-        </div>
-    );
-};
-
 const UserManagement = ({ user }: { user: User }) => {
   const [users, setUsers] = useState<User[]>([]);
   const [showForm, setShowForm] = useState(false);
@@ -2661,7 +2996,7 @@ const UserManagement = ({ user }: { user: User }) => {
       }
   }
 
-  const allPermissions = ['dashboard', 'tickets', 'printing', 'sales', 'inventory', 'attendance', 'reports', 'users', 'collectibles'];
+  const allPermissions = ['dashboard', 'tickets', 'printing', 'sales', 'inventory', 'attendance', 'reports', 'users', 'collectibles', 'expenses'];
 
   return (
     <div className="space-y-6">
@@ -2764,6 +3099,7 @@ const Sidebar = ({ user, setView, currentView, onLogout }: any) => {
     { id: 'printing', label: 'Printing Shop', icon: Icons.Print },
     { id: 'sales', label: 'Sales & POS', icon: Icons.Cart },
     { id: 'inventory', label: 'Inventory', icon: Icons.Box },
+    { id: 'expenses', label: 'Expenses', icon: Icons.Dollar },
     { id: 'attendance', label: 'Attendance', icon: Icons.Clock },
     { id: 'collectibles', label: 'Collectibles', icon: Icons.Collection },
     { id: 'reports', label: 'Reports', icon: Icons.Chart },
@@ -2779,7 +3115,7 @@ const Sidebar = ({ user, setView, currentView, onLogout }: any) => {
     <div className="w-64 bg-slate-900 text-slate-300 flex flex-col h-full flex-shrink-0 print:hidden">
       <div className="p-6 border-b border-slate-800">
         <h1 className="text-xl font-bold text-white tracking-tight">RCRS System</h1>
-        <p className="text-xs text-slate-500 mt-1">v1.2.0 • Offline Ready</p>
+        <p className="text-xs text-slate-500 mt-1">v1.3.0 • Offline Ready</p>
       </div>
       <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
         {menu.map(item => (
@@ -2851,6 +3187,7 @@ export default function App() {
       case 'collectibles': return <Collectibles user={user} />;
       case 'reports': return <Reports user={user} />;
       case 'users': return <UserManagement user={user} />;
+      case 'expenses': return <Expenses user={user} />;
       default: return <Dashboard user={user} onChangeView={setView} />;
     }
   };

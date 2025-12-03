@@ -1,6 +1,6 @@
 
 import { STORAGE_KEYS, MOCK_USERS } from "../constants";
-import { User, Product, ServiceTicket, PrintOrder, AttendanceRecord, SaleRecord, UserRole, PaymentStatus, ServicePart } from "../types";
+import { User, Product, ServiceTicket, PrintOrder, AttendanceRecord, SaleRecord, UserRole, PaymentStatus, ServicePart, ExpenseRecord } from "../types";
 
 // Helper to simulate delay
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
@@ -217,6 +217,17 @@ export const recordSale = async (sale: SaleRecord): Promise<void> => {
 export const getSales = async (): Promise<SaleRecord[]> => {
     return getItems<SaleRecord>(STORAGE_KEYS.SALES);
 }
+
+// --- Expenses ---
+export const getExpenses = async (): Promise<ExpenseRecord[]> => {
+  return getItems<ExpenseRecord>(STORAGE_KEYS.EXPENSES);
+};
+
+export const saveExpense = async (expense: ExpenseRecord): Promise<void> => {
+  const expenses = getItems<ExpenseRecord>(STORAGE_KEYS.EXPENSES);
+  expenses.push(expense);
+  setItems(STORAGE_KEYS.EXPENSES, expenses);
+};
 
 // --- Customers ---
 export const getCustomers = async (): Promise<{name: string, contact?: string}[]> => {

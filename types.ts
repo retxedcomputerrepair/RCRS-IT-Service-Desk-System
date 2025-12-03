@@ -144,3 +144,17 @@ export interface SaleRecord {
   customerType?: CustomerType;
   paymentStatus: PaymentStatus;
 }
+
+export type ExpenseCategory = 'Bond Paper' | 'Ink' | 'Tarpaulin Materials' | 'Other Supplies';
+
+export interface ExpenseRecord {
+  id: string;
+  date: number;
+  itemName: string;
+  category: ExpenseCategory;
+  quantity: number;
+  unitCost: number;
+  totalCost: number;
+  supplier?: string;
+  recordedBy: string;
+}
